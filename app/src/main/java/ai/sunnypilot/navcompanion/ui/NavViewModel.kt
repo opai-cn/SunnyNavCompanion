@@ -69,7 +69,11 @@ data class NavSettings(
   val baiduMapAk: String = "",
 )
 
-class NavViewModel(application: Application) : AndroidViewModel(application) {
+class NavViewModel(
+  application: Application,
+  /** When true, defer the bridge polling loop until [startPolling] is called explicitly. */
+  private val skipPolling: Boolean = false,
+) : AndroidViewModel(application) {
   private val prefs = application.getSharedPreferences("sunnynav", Context.MODE_PRIVATE)
   private val searchClient = PlaceSearchClient()
   private val routeClient = RouteClient()
@@ -101,7 +105,7 @@ class NavViewModel(application: Application) : AndroidViewModel(application) {
   private val locationListener = LocationListener { location -> handlePhoneFix(location) }
 
   init {
-    startPolling()
+    if (!skipPolling) startPolling()
   }
 
   fun setLocationPermission(granted: Boolean) {

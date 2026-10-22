@@ -129,13 +129,39 @@ fun MainScreen(viewModel: NavViewModel) {
   }
 
   Box(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
-    // DIAGNOSTIC: temporarily disabled NavMapView/WebMapView to isolate crash root cause.
-    // Replace with the original block once we have the logcat stacktrace.
-    Box(
-      Modifier
-        .fillMaxSize()
-        .background(Color(0xFF0B141A))
-    )
+    val chinaMap = when {
+      state.mapProvider == "amap" && state.amapJsKey.isNotBlank() -> "amap"
+      state.mapProvider == "baidu" && state.baiduMapAk.isNotBlank() -> "baidu"
+      else -> null
+    }
+    if (chinaMap != null) {
+      WebMapView(
+        provider = chinaMap,
+        amapJsKey = state.amapJsKey,
+        amapSecurity = state.amapSecurity,
+        baiduMapAk = state.baiduMapAk,
+        route = state.route?.geometry ?: emptyList(),
+        destination = state.destination?.point,
+        position = state.position,
+        bearing = state.bearing,
+        navigating = state.navigating,
+        follow = state.follow,
+        onUserGesture = viewModel::onUserGesture,
+        onError = viewModel::reportMapError,
+        modifier = Modifier.fillMaxSize(),
+      )
+    } else {
+      NavMapView(
+        route = state.route?.geometry ?: emptyList(),
+        destination = state.destination?.point,
+        position = state.position,
+        bearing = state.bearing,
+        navigating = state.navigating,
+        follow = state.follow,
+        onUserGesture = viewModel::onUserGesture,
+        modifier = Modifier.fillMaxSize(),
+      )
+    }
 
     Column(
       modifier = Modifier

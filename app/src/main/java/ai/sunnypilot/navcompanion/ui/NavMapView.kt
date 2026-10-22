@@ -5,6 +5,9 @@ import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Paint
 import android.graphics.Path
+import android.widget.FrameLayout
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Box
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
@@ -12,9 +15,13 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color as ComposeColor
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.compose.material3.Text
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
@@ -37,6 +44,7 @@ import org.maplibre.geojson.FeatureCollection
 import org.maplibre.geojson.LineString
 import org.maplibre.geojson.Point
 
+private const val TAG = "NavMapView"
 private const val STYLE_URL = "https://tiles.openfreemap.org/styles/dark"
 private const val ROUTE_SOURCE = "route-source"
 private const val EGO_SOURCE = "ego-source"
@@ -71,61 +79,84 @@ fun NavMapView(
   var mapView by remember { mutableStateOf<MapView?>(null) }
   var map by remember { mutableStateOf<MapLibreMap?>(null) }
   var styleReady by remember { mutableStateOf(false) }
+  var mapError by remember { mutableStateOf<String?>(null) }
+
+  // If MapLibre fails to initialize on this device, degrade gracefully instead of crashing.
+  if (mapError != null) {
+    Box(
+      modifier = modifier.background(ComposeColor(0xFF0B141A)),
+      contentAlignment = Alignment.Center,
+    ) {
+      Text(
+        text = "地图初始化失败\n${mapError}",
+        color = ComposeColor(0xFFFF5C5C),
+        fontSize = 12.sp,
+      )
+    }
+    return
+  }
 
   AndroidView(
     modifier = modifier,
     factory = { context ->
-      MapView(context).also { view ->
-        view.onCreate(null)
-        view.getMapAsync { mapInstance ->
-          map = mapInstance
-          mapInstance.setStyle(Style.Builder().fromUri(STYLE_URL)) { style ->
-            style.addImage(EGO_IMAGE, egoArrowBitmap())
-            style.addSource(GeoJsonSource(ROUTE_SOURCE, emptyCollection()))
-            style.addSource(GeoJsonSource(EGO_SOURCE, emptyCollection()))
-            style.addSource(GeoJsonSource(DEST_SOURCE, emptyCollection()))
-            style.addLayer(
-              LineLayer("route-casing", ROUTE_SOURCE).withProperties(
-                PropertyFactory.lineColor("#0B1F2A"),
-                PropertyFactory.lineWidth(9f),
-                PropertyFactory.lineCap(Property.LINE_CAP_ROUND),
-                PropertyFactory.lineJoin(Property.LINE_JOIN_ROUND),
+      try {
+        MapView(context).also { view ->
+          view.onCreate(null)
+          view.getMapAsync { mapInstance ->
+            map = mapInstance
+            mapInstance.setStyle(Style.Builder().fromUri(STYLE_URL)) { style ->
+              style.addImage(EGO_IMAGE, egoArrowBitmap())
+              style.addSource(GeoJsonSource(ROUTE_SOURCE, emptyCollection()))
+              style.addSource(GeoJsonSource(EGO_SOURCE, emptyCollection()))
+              style.addSource(GeoJsonSource(DEST_SOURCE, emptyCollection()))
+              style.addLayer(
+                LineLayer("route-casing", ROUTE_SOURCE).withProperties(
+                  PropertyFactory.lineColor("#0B1F2A"),
+                  PropertyFactory.lineWidth(9f),
+                  PropertyFactory.lineCap(Property.LINE_CAP_ROUND),
+                  PropertyFactory.lineJoin(Property.LINE_JOIN_ROUND),
+                )
               )
-            )
-            style.addLayer(
-              LineLayer("route-line", ROUTE_SOURCE).withProperties(
-                PropertyFactory.lineColor("#38E08B"),
-                PropertyFactory.lineWidth(6f),
-                PropertyFactory.lineCap(Property.LINE_CAP_ROUND),
-                PropertyFactory.lineJoin(Property.LINE_JOIN_ROUND),
+              style.addLayer(
+                LineLayer("route-line", ROUTE_SOURCE).withProperties(
+                  PropertyFactory.lineColor("#38E08B"),
+                  PropertyFactory.lineWidth(6f),
+                  PropertyFactory.lineCap(Property.LINE_CAP_ROUND),
+                  PropertyFactory.lineJoin(Property.LINE_JOIN_ROUND),
+                )
               )
-            )
-            style.addLayer(
-              CircleLayer("dest-circle", DEST_SOURCE).withProperties(
-                PropertyFactory.circleColor("#FF5C5C"),
-                PropertyFactory.circleRadius(8f),
-                PropertyFactory.circleStrokeColor("#FFFFFF"),
-                PropertyFactory.circleStrokeWidth(3f),
+              style.addLayer(
+                CircleLayer("dest-circle", DEST_SOURCE).withProperties(
+                  PropertyFactory.circleColor("#FF5C5C"),
+                  PropertyFactory.circleRadius(8f),
+                  PropertyFactory.circleStrokeColor("#FFFFFF"),
+                  PropertyFactory.circleStrokeWidth(3f),
+                )
               )
-            )
-            style.addLayer(
-              SymbolLayer("ego-layer", EGO_SOURCE).withProperties(
-                PropertyFactory.iconImage(EGO_IMAGE),
-                PropertyFactory.iconSize(0.5f),
-                PropertyFactory.iconAllowOverlap(true),
-                PropertyFactory.iconIgnorePlacement(true),
-                PropertyFactory.iconRotationAlignment(Property.ICON_ROTATION_ALIGNMENT_VIEWPORT),
+              style.addLayer(
+                SymbolLayer("ego-layer", EGO_SOURCE).withProperties(
+                  PropertyFactory.iconImage(EGO_IMAGE),
+                  PropertyFactory.iconSize(0.5f),
+                  PropertyFactory.iconAllowOverlap(true),
+                  PropertyFactory.iconIgnorePlacement(true),
+                  PropertyFactory.iconRotationAlignment(Property.ICON_ROTATION_ALIGNMENT_VIEWPORT),
+                )
               )
-            )
-            styleReady = true
-          }
-          mapInstance.addOnCameraMoveStartedListener { reason ->
-            if (reason == MapLibreMap.OnCameraMoveStartedListener.REASON_API_GESTURE) {
-              gesture.value()
+              styleReady = true
+            }
+            mapInstance.addOnCameraMoveStartedListener { reason ->
+              if (reason == MapLibreMap.OnCameraMoveStartedListener.REASON_API_GESTURE) {
+                gesture.value()
+              }
             }
           }
+          mapView = view
         }
-        mapView = view
+      } catch (t: Throwable) {
+        android.util.Log.e(TAG, "MapView creation failed", t)
+        mapError = t.message ?: t.javaClass.simpleName
+        // Return a plain View so Compose keeps rendering.
+        FrameLayout(context).apply { setBackgroundColor(Color.parseColor("#0B141A")) }
       }
     },
     update = { view ->

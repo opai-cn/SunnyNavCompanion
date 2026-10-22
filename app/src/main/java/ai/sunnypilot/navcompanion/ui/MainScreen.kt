@@ -1,7 +1,10 @@
 package ai.sunnypilot.navcompanion.ui
 
 import android.Manifest
+import android.content.Context
+import android.content.Intent
 import android.content.pm.PackageManager
+import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.BorderStroke
@@ -23,11 +26,13 @@ import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.MyLocation
@@ -84,6 +89,7 @@ import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import ai.sunnypilot.navcompanion.data.NavInstruction
 import ai.sunnypilot.navcompanion.data.Place
+import ai.sunnypilot.navcompanion.nav.ChinaGeo
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -123,16 +129,39 @@ fun MainScreen(viewModel: NavViewModel) {
   }
 
   Box(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
-    NavMapView(
-      route = state.route?.geometry ?: emptyList(),
-      destination = state.destination?.point,
-      position = state.position,
-      bearing = state.bearing,
-      navigating = state.navigating,
-      follow = state.follow,
-      onUserGesture = viewModel::onUserGesture,
-      modifier = Modifier.fillMaxSize(),
-    )
+    val chinaMap = when {
+      state.mapProvider == "amap" && state.amapJsKey.isNotBlank() -> "amap"
+      state.mapProvider == "baidu" && state.baiduMapAk.isNotBlank() -> "baidu"
+      else -> null
+    }
+    if (chinaMap != null) {
+      WebMapView(
+        provider = chinaMap,
+        amapJsKey = state.amapJsKey,
+        amapSecurity = state.amapSecurity,
+        baiduMapAk = state.baiduMapAk,
+        route = state.route?.geometry ?: emptyList(),
+        destination = state.destination?.point,
+        position = state.position,
+        bearing = state.bearing,
+        navigating = state.navigating,
+        follow = state.follow,
+        onUserGesture = viewModel::onUserGesture,
+        onError = viewModel::reportMapError,
+        modifier = Modifier.fillMaxSize(),
+      )
+    } else {
+      NavMapView(
+        route = state.route?.geometry ?: emptyList(),
+        destination = state.destination?.point,
+        position = state.position,
+        bearing = state.bearing,
+        navigating = state.navigating,
+        follow = state.follow,
+        onUserGesture = viewModel::onUserGesture,
+        modifier = Modifier.fillMaxSize(),
+      )
+    }
 
     Column(
       modifier = Modifier
@@ -167,6 +196,12 @@ fun MainScreen(viewModel: NavViewModel) {
           onSend = { viewModel.sendDestination() },
           onToggleSync = { viewModel.setSendToDevice(!state.sendToDevice) },
           onClear = viewModel::clearRoute,
+          onExternal = { target ->
+            val place = state.destination
+            if (place != null && !openExternalNavigation(context, target, place)) {
+              viewModel.notify("未安装${if (target == "amap") "高德地图" else "百度地图"}，也没有可用的浏览器")
+            }
+          },
         )
         state.destination != null || state.planning -> PlanningCard()
         else -> HintCard(state)
@@ -198,12 +233,19 @@ fun MainScreen(viewModel: NavViewModel) {
 
     if (showSettings) {
       SettingsDialog(
-        initialUrl = state.bridgeUrl,
-        initialProvider = state.provider,
+        initial = NavSettings(
+          bridgeUrl = state.bridgeUrl,
+          routeProvider = state.provider,
+          mapProvider = state.mapProvider,
+          amapKey = state.amapKey,
+          amapJsKey = state.amapJsKey,
+          amapSecurity = state.amapSecurity,
+          baiduAk = state.baiduAk,
+          baiduMapAk = state.baiduMapAk,
+        ),
         onTest = viewModel::testBridge,
-        onSave = { url, provider ->
-          viewModel.updateBridgeUrl(url)
-          viewModel.setProvider(provider)
+        onSave = { settings ->
+          viewModel.applySettings(settings)
           showSettings = false
         },
         onDismiss = { showSettings = false },
@@ -423,6 +465,7 @@ private fun RouteBottomBar(
   onSend: () -> Unit,
   onToggleSync: () -> Unit,
   onClear: () -> Unit,
+  onExternal: (String) -> Unit,
 ) {
   val route = state.route ?: return
   val destination = state.destination ?: return
@@ -492,6 +535,23 @@ private fun RouteBottomBar(
             Text("发送到车机")
           }
         }
+        Spacer(Modifier.height(8.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+          OutlinedButton(
+            onClick = { onExternal("amap") },
+            modifier = Modifier.weight(1f),
+            shape = RoundedCornerShape(14.dp),
+          ) {
+            Text("用高德导航")
+          }
+          OutlinedButton(
+            onClick = { onExternal("baidu") },
+            modifier = Modifier.weight(1f),
+            shape = RoundedCornerShape(14.dp),
+          ) {
+            Text("用百度导航")
+          }
+        }
         if (state.bridgeUrl.isBlank()) {
           Spacer(Modifier.height(8.dp))
           Text(
@@ -529,6 +589,16 @@ private fun PlanningCard() {
 
 @Composable
 private fun HintCard(state: UiState) {
+  val mapLabel = when {
+    state.mapProvider == "amap" && state.amapJsKey.isNotBlank() -> "地图 © 高德"
+    state.mapProvider == "baidu" && state.baiduMapAk.isNotBlank() -> "地图 © 百度"
+    else -> "地图 © OpenStreetMap"
+  }
+  val bridgeLabel = when {
+    state.bridgeUrl.isBlank() -> "车机桥接未配置"
+    state.deviceOnline -> "车机已连接"
+    else -> "车机离线"
+  }
   Surface(
     shape = RoundedCornerShape(18.dp),
     color = MaterialTheme.colorScheme.surface.copy(alpha = 0.92f),
@@ -537,11 +607,7 @@ private fun HintCard(state: UiState) {
       Text("搜索目的地开始导航", style = MaterialTheme.typography.titleSmall)
       Spacer(Modifier.height(4.dp))
       Text(
-        when {
-          state.bridgeUrl.isBlank() -> "车机桥接未配置 · 地图 © OpenStreetMap"
-          state.deviceOnline -> "车机已连接 · 地图 © OpenStreetMap"
-          else -> "车机离线 · 地图 © OpenStreetMap"
-        },
+        "$bridgeLabel · $mapLabel",
         style = MaterialTheme.typography.bodySmall,
         color = MaterialTheme.colorScheme.onSurfaceVariant,
       )
@@ -551,51 +617,133 @@ private fun HintCard(state: UiState) {
 
 @Composable
 private fun SettingsDialog(
-  initialUrl: String,
-  initialProvider: String,
+  initial: NavSettings,
   onTest: (String) -> Unit,
-  onSave: (String, String) -> Unit,
+  onSave: (NavSettings) -> Unit,
   onDismiss: () -> Unit,
 ) {
-  var url by remember(initialUrl) { mutableStateOf(initialUrl) }
-  var provider by remember(initialProvider) { mutableStateOf(initialProvider) }
+  var settings by remember(initial) { mutableStateOf(initial) }
 
   AlertDialog(
     onDismissRequest = onDismiss,
-    title = { Text("车机桥接与路线") },
+    title = { Text("设置") },
     text = {
-      Column {
+      Column(
+        Modifier
+          .heightIn(max = 460.dp)
+          .verticalScroll(rememberScrollState()),
+      ) {
         Text("车机桥接地址", style = MaterialTheme.typography.labelLarge)
         Spacer(Modifier.height(6.dp))
         OutlinedTextField(
-          value = url,
-          onValueChange = { url = it },
+          value = settings.bridgeUrl,
+          onValueChange = { settings = settings.copy(bridgeUrl = it) },
           singleLine = true,
           modifier = Modifier.fillMaxWidth(),
           placeholder = { Text("192.168.1.50:8765") },
         )
-        Spacer(Modifier.height(14.dp))
-        Text("路线服务", style = MaterialTheme.typography.labelLarge)
+        Spacer(Modifier.height(16.dp))
+        Text("底图", style = MaterialTheme.typography.labelLarge)
         Spacer(Modifier.height(6.dp))
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-          ProviderChip("自动", provider == "auto") { provider = "auto" }
-          ProviderChip("OSRM", provider == "osrm") { provider = "osrm" }
-          ProviderChip("BRouter", provider == "brouter") { provider = "brouter" }
+          ProviderChip("MapLibre", settings.mapProvider == "maplibre") {
+            settings = settings.copy(mapProvider = "maplibre")
+          }
+          ProviderChip("高德", settings.mapProvider == "amap") {
+            settings = settings.copy(mapProvider = "amap")
+          }
+          ProviderChip("百度", settings.mapProvider == "baidu") {
+            settings = settings.copy(mapProvider = "baidu")
+          }
         }
-        Spacer(Modifier.height(14.dp))
+        Spacer(Modifier.height(16.dp))
+        Text("路线与搜索服务", style = MaterialTheme.typography.labelLarge)
+        Spacer(Modifier.height(6.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+          ProviderChip("自动", settings.routeProvider == "auto") {
+            settings = settings.copy(routeProvider = "auto")
+          }
+          ProviderChip("OSRM", settings.routeProvider == "osrm") {
+            settings = settings.copy(routeProvider = "osrm")
+          }
+          ProviderChip("BRouter", settings.routeProvider == "brouter") {
+            settings = settings.copy(routeProvider = "brouter")
+          }
+        }
+        Spacer(Modifier.height(6.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+          ProviderChip("高德", settings.routeProvider == "amap") {
+            settings = settings.copy(routeProvider = "amap")
+          }
+          ProviderChip("百度", settings.routeProvider == "baidu") {
+            settings = settings.copy(routeProvider = "baidu")
+          }
+        }
+        Spacer(Modifier.height(16.dp))
+        Text("高德 Key", style = MaterialTheme.typography.labelLarge)
+        Spacer(Modifier.height(6.dp))
+        OutlinedTextField(
+          value = settings.amapKey,
+          onValueChange = { settings = settings.copy(amapKey = it) },
+          singleLine = true,
+          label = { Text("Web 服务 Key（搜索/路线）") },
+          modifier = Modifier.fillMaxWidth(),
+        )
+        Spacer(Modifier.height(6.dp))
+        OutlinedTextField(
+          value = settings.amapJsKey,
+          onValueChange = { settings = settings.copy(amapJsKey = it) },
+          singleLine = true,
+          label = { Text("JS API Key（底图）") },
+          modifier = Modifier.fillMaxWidth(),
+        )
+        Spacer(Modifier.height(6.dp))
+        OutlinedTextField(
+          value = settings.amapSecurity,
+          onValueChange = { settings = settings.copy(amapSecurity = it) },
+          singleLine = true,
+          label = { Text("安全密钥 securityJsCode") },
+          modifier = Modifier.fillMaxWidth(),
+        )
+        Spacer(Modifier.height(16.dp))
+        Text("百度 Key", style = MaterialTheme.typography.labelLarge)
+        Spacer(Modifier.height(6.dp))
+        OutlinedTextField(
+          value = settings.baiduAk,
+          onValueChange = { settings = settings.copy(baiduAk = it) },
+          singleLine = true,
+          label = { Text("服务端 AK（搜索/路线）") },
+          modifier = Modifier.fillMaxWidth(),
+        )
+        Spacer(Modifier.height(6.dp))
+        OutlinedTextField(
+          value = settings.baiduMapAk,
+          onValueChange = { settings = settings.copy(baiduMapAk = it) },
+          singleLine = true,
+          label = { Text("浏览器端 AK（底图）") },
+          modifier = Modifier.fillMaxWidth(),
+        )
+        Spacer(Modifier.height(16.dp))
         Text(
-          "先在车机上运行 bridge/nav_bridge.py，手机与车机需在同一 Wi-Fi。App 会把目的地写入 NavDestination 参数并开启 NavigationEnabled。",
+          "高德与百度需要各自申请 Key，并保持全网可用（域名白名单留空）。" +
+            "未填写 Key 时底图回退 MapLibre，路线回退 OSRM/BRouter。",
+          style = MaterialTheme.typography.bodySmall,
+          color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Spacer(Modifier.height(8.dp))
+        Text(
+          "车机桥接：先在车机上运行 bridge/nav_bridge.py，手机与车机需在同一 Wi-Fi。",
           style = MaterialTheme.typography.bodySmall,
           color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
       }
     },
     confirmButton = {
-      TextButton(onClick = { onSave(url, provider) }) { Text("保存") }
+      TextButton(onClick = { onSave(settings) }) { Text("保存") }
     },
     dismissButton = {
       Row {
-        TextButton(onClick = { onTest(url) }) { Text("测试连接") }
+        TextButton(onClick = { onTest(settings.bridgeUrl) }) { Text("测试连接") }
         TextButton(onClick = onDismiss) { Text("取消") }
       }
     },
@@ -671,6 +819,31 @@ private fun ManeuverIcon(type: String, modifier: String, iconModifier: Modifier)
       }
     }
   }
+}
+
+/**
+ * Hands the destination to the installed AMap or Baidu app. Both schemes take GCJ-02, so the
+ * WGS-84 point is converted first; if neither the app nor a browser is available, returns false.
+ */
+private fun openExternalNavigation(context: Context, target: String, place: Place): Boolean {
+  val point = ChinaGeo.wgs84ToGcj02(place.point)
+  val name = Uri.encode(place.name)
+  val lat = point.lat
+  val lon = point.lon
+  val appUri = when (target) {
+    "amap" -> "amapuri://route/plan/?dlat=$lat&dlon=$lon&dname=$name&dev=0&t=0"
+    else -> "baidumap://map/direction?destination=latlng:$lat,$lon|name:$name&coord_type=gcj02&mode=driving"
+  }
+  val webUrl = when (target) {
+    "amap" -> "https://uri.amap.com/navigation?to=$lon,$lat,$name&mode=car&coordinate=gaode&callnative=0"
+    else -> "https://api.map.baidu.com/direction?destination=latlng:$lat,$lon|name:$name" +
+      "&mode=driving&coord_type=gcj02&output=html&src=webapp.sunnynav"
+  }
+  return runCatching {
+    context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(appUri)).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+  }.recoverCatching {
+    context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(webUrl)).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+  }.isSuccess
 }
 
 private fun formatDistance(meters: Double): String {

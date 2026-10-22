@@ -13,25 +13,38 @@ import java.util.concurrent.TimeUnit
 import kotlin.math.abs
 
 /**
- * Route planning. OSRM answers with full turn-by-turn steps; BRouter is used as a keyless
- * fallback, with maneuvers inferred from the route geometry.
+ * Route planning. AMap and Baidu are used when their keys are configured; OSRM answers with full
+ * turn-by-turn steps and BRouter is the keyless fallback, with maneuvers inferred from the route
+ * geometry.
  */
 class RouteClient {
   private val client = OkHttpClient.Builder()
     .connectTimeout(4, TimeUnit.SECONDS)
     .readTimeout(10, TimeUnit.SECONDS)
     .build()
+  private val amap = AmapClient()
+  private val baidu = BaiduClient()
 
-  suspend fun route(from: LngLat, to: LngLat, provider: String): NavRoute = withContext(Dispatchers.IO) {
+  suspend fun route(
+    from: LngLat,
+    to: LngLat,
+    provider: String,
+    amapKey: String = "",
+    baiduAk: String = "",
+  ): NavRoute = withContext(Dispatchers.IO) {
     val attempts = when (provider) {
       "osrm" -> listOf("osrm")
       "brouter" -> listOf("brouter")
+      "amap" -> if (amapKey.isNotBlank()) listOf("amap", "osrm", "brouter") else listOf("osrm", "brouter")
+      "baidu" -> if (baiduAk.isNotBlank()) listOf("baidu", "osrm", "brouter") else listOf("osrm", "brouter")
       else -> listOf("osrm", "brouter")
     }
     var lastError: Exception? = null
     for (attempt in attempts) {
       try {
         return@withContext when (attempt) {
+          "amap" -> amap.route(amapKey, from, to)
+          "baidu" -> baidu.route(baiduAk, from, to)
           "osrm" -> osrm(from, to)
           else -> brouter(from, to)
         }

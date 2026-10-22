@@ -48,7 +48,25 @@ data class UiState(
   val deviceOnline: Boolean = false,
   val deviceInstruction: DeviceInstruction? = null,
   val provider: String = "auto",
+  val mapProvider: String = "maplibre",
+  val amapKey: String = "",
+  val amapJsKey: String = "",
+  val amapSecurity: String = "",
+  val baiduAk: String = "",
+  val baiduMapAk: String = "",
   val message: String? = null,
+)
+
+/** Editable configuration returned by the settings dialog. */
+data class NavSettings(
+  val bridgeUrl: String = "",
+  val routeProvider: String = "auto",
+  val mapProvider: String = "maplibre",
+  val amapKey: String = "",
+  val amapJsKey: String = "",
+  val amapSecurity: String = "",
+  val baiduAk: String = "",
+  val baiduMapAk: String = "",
 )
 
 class NavViewModel(application: Application) : AndroidViewModel(application) {
@@ -62,6 +80,12 @@ class NavViewModel(application: Application) : AndroidViewModel(application) {
       bridgeUrl = prefs.getString(KEY_BRIDGE_URL, "") ?: "",
       sendToDevice = prefs.getBoolean(KEY_SEND_TO_DEVICE, true),
       provider = prefs.getString(KEY_PROVIDER, "auto") ?: "auto",
+      mapProvider = prefs.getString(KEY_MAP_PROVIDER, "maplibre") ?: "maplibre",
+      amapKey = prefs.getString(KEY_AMAP_KEY, "") ?: "",
+      amapJsKey = prefs.getString(KEY_AMAP_JS_KEY, "") ?: "",
+      amapSecurity = prefs.getString(KEY_AMAP_SECURITY, "") ?: "",
+      baiduAk = prefs.getString(KEY_BAIDU_AK, "") ?: "",
+      baiduMapAk = prefs.getString(KEY_BAIDU_MAP_AK, "") ?: "",
     )
   )
   val state: StateFlow<UiState> = _state.asStateFlow()
@@ -114,8 +138,17 @@ class NavViewModel(application: Application) : AndroidViewModel(application) {
     searchJob = viewModelScope.launch {
       delay(400)
       _state.update { it.copy(searching = true) }
+      val current = _state.value
       val places = withContext(Dispatchers.IO) {
-        runCatching { searchClient.search(trimmed, _state.value.position) }.getOrDefault(emptyList())
+        runCatching {
+          searchClient.search(
+            query = trimmed,
+            near = current.position,
+            provider = current.provider,
+            amapKey = current.amapKey,
+            baiduAk = current.baiduAk,
+          )
+        }.getOrDefault(emptyList())
       }
       _state.update { it.copy(searching = false, places = places) }
     }
@@ -136,8 +169,11 @@ class NavViewModel(application: Application) : AndroidViewModel(application) {
   private fun planRoute(from: LngLat, place: Place) {
     viewModelScope.launch {
       _state.update { it.copy(planning = true) }
+      val current = _state.value
       val attempt = withContext(Dispatchers.IO) {
-        runCatching { routeClient.route(from, place.point, _state.value.provider) }
+        runCatching {
+          routeClient.route(from, place.point, current.provider, current.amapKey, current.baiduAk)
+        }
       }
       attempt.onSuccess { route ->
         session = NavSession(route, place.point)
@@ -223,16 +259,46 @@ class NavViewModel(application: Application) : AndroidViewModel(application) {
     }
   }
 
-  fun updateBridgeUrl(url: String) {
-    val trimmed = url.trim()
-    prefs.edit().putString(KEY_BRIDGE_URL, trimmed).apply()
-    _state.update { it.copy(bridgeUrl = trimmed) }
-    startPolling()
+  fun applySettings(settings: NavSettings) {
+    val trimmedUrl = settings.bridgeUrl.trim()
+    val previousUrl = _state.value.bridgeUrl
+    prefs.edit()
+      .putString(KEY_BRIDGE_URL, trimmedUrl)
+      .putString(KEY_PROVIDER, settings.routeProvider)
+      .putString(KEY_MAP_PROVIDER, settings.mapProvider)
+      .putString(KEY_AMAP_KEY, settings.amapKey.trim())
+      .putString(KEY_AMAP_JS_KEY, settings.amapJsKey.trim())
+      .putString(KEY_AMAP_SECURITY, settings.amapSecurity.trim())
+      .putString(KEY_BAIDU_AK, settings.baiduAk.trim())
+      .putString(KEY_BAIDU_MAP_AK, settings.baiduMapAk.trim())
+      .apply()
+    _state.update {
+      it.copy(
+        bridgeUrl = trimmedUrl,
+        provider = settings.routeProvider,
+        mapProvider = settings.mapProvider,
+        amapKey = settings.amapKey.trim(),
+        amapJsKey = settings.amapJsKey.trim(),
+        amapSecurity = settings.amapSecurity.trim(),
+        baiduAk = settings.baiduAk.trim(),
+        baiduMapAk = settings.baiduMapAk.trim(),
+      )
+    }
+    if (trimmedUrl != previousUrl) startPolling()
+    when {
+      settings.mapProvider == "amap" && settings.amapJsKey.isBlank() ->
+        postMessage("未填写高德 JS API Key，底图仍使用 MapLibre")
+      settings.mapProvider == "baidu" && settings.baiduMapAk.isBlank() ->
+        postMessage("未填写百度浏览器端 AK，底图仍使用 MapLibre")
+    }
   }
 
-  fun setProvider(provider: String) {
-    prefs.edit().putString(KEY_PROVIDER, provider).apply()
-    _state.update { it.copy(provider = provider) }
+  fun notify(text: String) {
+    postMessage(text)
+  }
+
+  fun reportMapError(message: String) {
+    postMessage("底图加载失败：$message")
   }
 
   fun setFollow(follow: Boolean) {
@@ -304,7 +370,9 @@ class NavViewModel(application: Application) : AndroidViewModel(application) {
     lastRerouteAt = now
     viewModelScope.launch {
       val attempt = withContext(Dispatchers.IO) {
-        runCatching { routeClient.route(from, destination.point, current.provider) }
+        runCatching {
+          routeClient.route(from, destination.point, current.provider, current.amapKey, current.baiduAk)
+        }
       }
       attempt.onSuccess { route ->
         session = NavSession(route, destination.point)
@@ -331,5 +399,11 @@ class NavViewModel(application: Application) : AndroidViewModel(application) {
     private const val KEY_BRIDGE_URL = "bridge_url"
     private const val KEY_SEND_TO_DEVICE = "send_to_device"
     private const val KEY_PROVIDER = "provider"
+    private const val KEY_MAP_PROVIDER = "map_provider"
+    private const val KEY_AMAP_KEY = "amap_key"
+    private const val KEY_AMAP_JS_KEY = "amap_js_key"
+    private const val KEY_AMAP_SECURITY = "amap_security"
+    private const val KEY_BAIDU_AK = "baidu_ak"
+    private const val KEY_BAIDU_MAP_AK = "baidu_map_ak"
   }
 }

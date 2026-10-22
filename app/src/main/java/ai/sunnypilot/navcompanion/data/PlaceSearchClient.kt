@@ -10,14 +10,33 @@ import org.json.JSONArray
 import org.json.JSONObject
 import java.util.concurrent.TimeUnit
 
-/** Place search via Photon (OSM), with Nominatim as a fallback. Both are keyless. */
+/**
+ * Place search. AMap or Baidu is preferred when the route provider selects one of them and its
+ * key is present; Photon (OSM) and Nominatim remain the keyless fallback.
+ */
 class PlaceSearchClient {
   private val client = OkHttpClient.Builder()
     .connectTimeout(4, TimeUnit.SECONDS)
     .readTimeout(8, TimeUnit.SECONDS)
     .build()
+  private val amap = AmapClient()
+  private val baidu = BaiduClient()
 
-  suspend fun search(query: String, near: LngLat?): List<Place> = withContext(Dispatchers.IO) {
+  suspend fun search(
+    query: String,
+    near: LngLat?,
+    provider: String = "auto",
+    amapKey: String = "",
+    baiduAk: String = "",
+  ): List<Place> = withContext(Dispatchers.IO) {
+    val china = when {
+      provider == "amap" && amapKey.isNotBlank() ->
+        runCatching { amap.search(amapKey, query) }.getOrDefault(emptyList())
+      provider == "baidu" && baiduAk.isNotBlank() ->
+        runCatching { baidu.search(baiduAk, query, near) }.getOrDefault(emptyList())
+      else -> emptyList()
+    }
+    if (china.isNotEmpty()) return@withContext china
     val photon = runCatching { photon(query, near) }.getOrDefault(emptyList())
     if (photon.isNotEmpty()) photon else runCatching { nominatim(query) }.getOrDefault(emptyList())
   }

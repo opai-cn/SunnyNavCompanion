@@ -1,0 +1,20 @@
+[Unit]
+Description=SunnyNav LAN bridge for sunnypilot navigation
+Documentation=https://github.com/sunnypilot/sunnypilot
+After=network-online.target
+Wants=network-online.target
+StartLimitIntervalSec=0
+
+[Service]
+Type=simple
+# nav_bridge.py rebuilds the launch_chffrplus.sh PYTHONPATH itself, this is belt and braces
+Environment=PYTHONPATH=/data/openpilot
+Environment=OPENPILOT_ROOT=/data/openpilot
+Environment=PYTHONUNBUFFERED=1
+WorkingDirectory=/data/sunnynav
+ExecStart=/usr/local/venv/bin/python /data/sunnynav/nav_bridge.py --host 0.0.0.0 --port 8765
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

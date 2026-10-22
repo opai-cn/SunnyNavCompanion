@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Flavor-specific manifest merged on top of src/main/AndroidManifest.xml for carauto builds. -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+  <!-- automotive hardware is OPTIONAL so the APK can also run on Android Auto (phone projection),
+       not only on Android Automotive OS headsets -->
+  <uses-feature
+      android:name="android.hardware.type.automotive"
+      android:required="false" />
+
+  <!-- car.templates_host is REQUIRED — this flavor only makes sense on car-capable hosts -->
+  <uses-feature
+      android:name="android.software.car.templates_host"
+      android:required="true" />
+
+  <!-- Car App library template-level permissions: NAVIGATION_TEMPLATES for the NavigationTemplate,
+       ACCESS_SURFACE so we can draw our own map on the host-provided Surface. -->
+  <uses-permission android:name="androidx.car.app.NAVIGATION_TEMPLATES" />
+  <uses-permission android:name="androidx.car.app.ACCESS_SURFACE" />
+  <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
+
+  <application>
+    <service
+        android:name="ai.sunnypilot.navcompanion.car.NavCarAppService"
+        android:exported="true">
+      <property
+          android:name="androidx.car.app.CarAppService"
+          android:value="ai.sunnypilot.navcompanion.car.NavCarAppService" />
+      <intent-filter>
+        <action android:name="androidx.car.app.action.CAR_APP_SERVICE" />
+        <category android:name="android.intent.category.DEFAULT" />
+      </intent-filter>
+    </service>
+  </application>
+</manifest>

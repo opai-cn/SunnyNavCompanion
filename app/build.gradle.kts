@@ -8,12 +8,31 @@ android {
   namespace = "ai.sunnypilot.navcompanion"
   compileSdk = 36
 
+  flavorDimensions += "platform"
+
   defaultConfig {
     applicationId = "ai.sunnypilot.navcompanion"
+    // Phone users get minSdk 26 so the App runs on older Android handsets. The carauto flavor
+    // overrides this because androidx.car.app requires minSdk 29.
     minSdk = 26
     targetSdk = 36
     versionCode = 1
     versionName = "1.0"
+  }
+
+  productFlavors {
+    create("phone") {
+      dimension = "platform"
+      // Inherits minSdk 26 from defaultConfig.
+    }
+    create("carauto") {
+      dimension = "platform"
+      // AndroidX Car App library (androidx.car.app) requires API 29+.
+      minSdk = 29
+      versionNameSuffix = "-carauto"
+      // Suffix the APK so both the phone build and the car build can co-exist on a phone.
+      applicationIdSuffix = ".car"
+    }
   }
 
   buildFeatures {
@@ -52,4 +71,8 @@ dependencies {
 
   implementation("org.maplibre.gl:android-sdk:11.13.5")
   implementation("com.squareup.okhttp3:okhttp:4.12.0")
+
+  // Android Auto / Android Automotive OS integration — only bundled in the carauto flavor.
+  // androidx.car.app:app 1.7.0 requires minSdk 29 (carauto flavor overrides defaultConfig's 26).
+  add("carautoImplementation", "androidx.car.app:app:1.7.0")
 }

@@ -1,0 +1,20 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="72dp"
+    android:height="72dp"
+    android:viewportWidth="72"
+    android:viewportHeight="72">
+  <!-- U-turn: down then sharp 180° to the left and back up -->
+  <path
+      android:fillColor="#FFFFFF"
+      android:pathData="M20,12 L20,38 Q20,52 36,52 Q52,52 52,38 L52,12"
+      android:strokeWidth="6"
+      android:strokeColor="#FFFFFF"
+      android:strokeLineCap="round"
+      android:strokeLineJoin="round" />
+  <path
+      android:fillColor="#FFFFFF"
+      android:pathData="M52,12 L42,20 M52,12 L58,22"
+      android:strokeWidth="6"
+      android:strokeColor="#FFFFFF"
+      android:strokeLineCap="round" />
+</vector>

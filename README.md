@@ -1,5 +1,7 @@
 # SunnyNavCompanion
 
+[![Android CI](https://github.com/opai-cn/SunnyNavCompanion/actions/workflows/android-ci.yml/badge.svg)](https://github.com/opai-cn/SunnyNavCompanion/actions/workflows/android-ci.yml)
+
 sunnypilot 导航功能的 Android 伴侣应用：在手机上搜索目的地、规划路线、显示实时转向指引，并把目的地下发到车机，让车机端的 `navd`/`mapsd` 真正跑起来。
 
 sunnypilot 的 master（`openpilot/selfdrive/navigation/`，2026-10-12 合入）只有导航**后端**，车机端 `settings/navigation.py` 是空的，没有输入目的地的入口。本项目补上「目的地输入 + 路线 + 转向显示」这一层。
@@ -45,6 +47,22 @@ echo "sdk.dir=/path/to/Android/Sdk" > local.properties
 ```
 
 或直接用 Android Studio 打开工程同步后运行。
+
+## 持续集成与发布
+
+| 工作流 | 触发条件 | 内容 |
+|---|---|---|
+| [`android-ci.yml`](.github/workflows/android-ci.yml) | push / PR 到 `main`，或手动触发 | 校验桥接脚本语法、构建 debug APK、上传 artifact（保留 14 天） |
+| [`android-release.yml`](.github/workflows/android-release.yml) | 推送 `v*` 标签，或手动触发 | 构建 APK、生成 `SHA256SUMS.txt`、创建 GitHub Release |
+
+CI 使用 JDK 21 + `platforms;android-36` + `build-tools;36.0.0`，Gradle 依赖由 `gradle/actions/setup-gradle` 缓存。发布新版本：
+
+```bash
+git tag v1.0.0
+git push origin v1.0.0
+```
+
+Release 附件中的 APK 是 debug 签名（可直接安装，不适合 Play 商店）；如需正式签名，请自行配置 keystore。
 
 ## 车机端部署
 

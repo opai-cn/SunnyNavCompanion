@@ -47,13 +47,18 @@ jobs:
         id: tag
         run: echo "value=${{ inputs.tag || github.ref_name }}" >> "$GITHUB_OUTPUT"
 
-      - name: Build debug APK
-        run: ./gradlew --no-daemon assembleDebug --stacktrace
+      - name: Build phone debug APK
+        run: ./gradlew --no-daemon assemblePhoneDebug --stacktrace
 
-      - name: Package APK and checksum
+      - name: Build carauto debug APK
+        run: ./gradlew --no-daemon assembleCarautoDebug --stacktrace
+
+      - name: Package APKs and checksums
         run: |
           mkdir -p dist
-          cp app/build/outputs/apk/debug/app-debug.apk "dist/SunnyNavCompanion-${{ steps.tag.outputs.value }}.apk"
+          TAG="${{ steps.tag.outputs.value }}"
+          cp app/build/outputs/apk/phone/debug/app-phone-debug.apk  "dist/SunnyNavCompanion-phone-${TAG}.apk"
+          cp app/build/outputs/apk/carauto/debug/app-carauto-debug.apk "dist/SunnyNavCompanion-carauto-${TAG}.apk"
           cd dist
           sha256sum *.apk > SHA256SUMS.txt
           ls -lh
@@ -64,7 +69,8 @@ jobs:
           tag_name: ${{ steps.tag.outputs.value }}
           name: SunnyNavCompanion ${{ steps.tag.outputs.value }}
           files: |
-            dist/SunnyNavCompanion-${{ steps.tag.outputs.value }}.apk
+            dist/SunnyNavCompanion-phone-${{ steps.tag.outputs.value }}.apk
+            dist/SunnyNavCompanion-carauto-${{ steps.tag.outputs.value }}.apk
             dist/SHA256SUMS.txt
           generate_release_notes: true
           fail_on_unmatched_files: true

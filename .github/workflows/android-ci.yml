@@ -46,13 +46,24 @@ jobs:
       - name: Check bridge script syntax
         run: python3 -m py_compile bridge/nav_bridge.py
 
-      - name: Build debug APK
-        run: ./gradlew --no-daemon assembleDebug --stacktrace
+      - name: Build phone debug APK
+        run: ./gradlew --no-daemon assemblePhoneDebug --stacktrace
 
-      - name: Upload debug APK
+      - name: Build carauto debug APK
+        run: ./gradlew --no-daemon assembleCarautoDebug --stacktrace
+
+      - name: Upload phone debug APK
         uses: actions/upload-artifact@v4
         with:
-          name: SunnyNavCompanion-debug
-          path: app/build/outputs/apk/debug/app-debug.apk
+          name: SunnyNavCompanion-phone-debug
+          path: app/build/outputs/apk/phone/debug/app-phone-debug.apk
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Upload carauto debug APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: SunnyNavCompanion-carauto-debug
+          path: app/build/outputs/apk/carauto/debug/app-carauto-debug.apk
           if-no-files-found: error
           retention-days: 14
